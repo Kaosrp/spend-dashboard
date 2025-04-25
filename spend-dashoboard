@@ -1,0 +1,77 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+st.set_page_config(page_title="Spend Analysis Dashboard", layout="wide")
+st.title("Spend Analysis Dashboard")
+
+# Upload da base de dados
+uploaded_file = st.file_uploader("Faça upload da base de dados (CSV ou Excel)", type=["csv", "xlsx"])
+if uploaded_file:
+    try:
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file)
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo: {e}")
+        st.stop()
+
+    st.sidebar.header("Filtros")
+    # Filtros para colunas categóricas
+    filtered_df = df.copy()
+    for col in filtered_df.select_dtypes(include=["object", "category"]).columns:
+        opts = filtered_df[col].dropna().unique().tolist()
+        sel = st.sidebar.multiselect(f"Filtrar {col}", opts, default=opts)
+        filtered_df = filtered_df[filtered_df[col].isin(sel)]
+
+    # Coluna de spend selecionável
+    numeric_cols = filtered_df.select_dtypes(include=["number"]).columns.tolist()
+    spend_col = st.sidebar.selectbox("Selecione a coluna de spend", numeric_cols)
+
+    # Métricas gerais
+    total_spend = filtered_df[spend_col].sum()
+    avg_spend = filtered_df[spend_col].mean()
+    st.sidebar.markdown("---")
+    st.sidebar.metric("Total Spend", f"R$ {total_spend:,.2f}")
+    st.sidebar.metric("Média (por registro)", f"R$ {avg_spend:,.2f}")
+
+    # Visualização da tabela filtrada
+    st.subheader("Dados filtrados")
+    st.dataframe(filtered_df)
+
+    # Gráfico de barras por categoria
+    st.subheader("Spend por Categoria")
+    cat_col = st.sidebar.selectbox("Agrupar por categoria", 
+                                   filtered_df.select_dtypes(include=["object", "category"]).columns.tolist())
+    spend_by_cat = filtered_df.groupby(cat_col)[spend_col].sum().reset_index()
+    fig_cat = px.bar(spend_by_cat, x=cat_col, y=spend_col,
+                     labels={cat_col: cat_col, spend_col: "Total Spend"},
+                     title="Spend por Categoria")
+    st.plotly_chart(fig_cat, use_container_width=True)
+
+    # Se houver coluna de data, gráfico de série temporal
+    date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])] or []
+    if date_cols:
+        st.subheader("Spend ao Longo do Tempo")
+        date_col = st.sidebar.selectbox("Selecione coluna de data", date_cols)
+        ts = filtered_df.groupby(date_col)[spend_col].sum().reset_index()
+        fig_time = px.line(ts, x=date_col, y=spend_col,
+                           labels={date_col: "Data", spend_col: "Total Spend"},
+                           title="Spend ao Longo do Tempo")
+        st.plotly_chart(fig_time, use_container_width=True)
+
+    # Download dos dados filtrados
+    st.markdown("---")
+    st.download_button(
+        label="📥 Baixar dados filtrados como CSV",
+        data=filtered_df.to_csv(index=False).encode('utf-8-sig'),
+        file_name='filtered_spend.csv',
+        mime='text/csv'
+    )
+else:
+    st.info("Aguardando upload da base de dados para iniciar a análise.")
+
+# Para rodar: > pip install streamlit pandas plotly
+# Em seguida: > streamlit run spend_analysis_dashboard.py
+
